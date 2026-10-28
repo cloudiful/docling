@@ -172,6 +172,18 @@ def test_cli_convert(tmp_path):
     assert converted.exists()
 
 
+def test_cli_convert_exits_nonzero_when_a_document_fails(tmp_path):
+    source = tmp_path / "broken.pdf"
+    source.write_bytes(b"this is not a PDF")
+    output = tmp_path / "out"
+    output.mkdir()
+
+    result = runner.invoke(app, [str(source), "--output", str(output)])
+
+    assert result.exit_code == 1
+    assert not (output / "broken.md").exists()
+
+
 def test_cli_exports_doclang(tmp_path):
     source = tmp_path / "input.md"
     source.write_text("# DocLang CLI\n\nHello from Markdown.", encoding="utf-8")
@@ -1731,7 +1743,9 @@ def test_cli_deprecated_psm_still_sets_tesseract_psm(tmp_path, monkeypatch):
     assert ocr_options.psm == 4
 
 
-def test_cli_options_lists_engine_fields():
+def test_cli_options_lists_engine_fields(monkeypatch):
+    # Rich reads the table width from `COLUMNS`, not from `terminal_width`.
+    monkeypatch.setenv("COLUMNS", "200")
     result = runner.invoke(app, ["options", "ocr", "rapidocr"], terminal_width=200)
     assert result.exit_code == 0, result.output
     assert "model_size" in result.output
@@ -1896,6 +1910,24 @@ def _capture_cli_asr_pipeline_options(monkeypatch, extra_args, tmp_path):
         app, [source, "--output", str(tmp_path / "out"), *extra_args]
     )
     return result, captured.get("asr_pipeline_options")
+
+
+def test_cli_transformers_asr_flags_reach_pipeline_options(tmp_path, monkeypatch):
+    from docling.datamodel.asr_model_specs import GRANITE_SPEECH_5_0_2B
+
+    result, options = _capture_cli_asr_pipeline_options(
+        monkeypatch,
+        [
+            "--asr-model",
+            "granite_speech_5_0_2b",
+            "--asr-language",
+            "de",
+        ],
+        tmp_path,
+    )
+    assert result.exit_code == 0, result.output
+    assert options.asr_options.language == "de"
+    assert GRANITE_SPEECH_5_0_2B.language is None
 
 
 def test_cli_allow_external_plugins_reaches_asr_pipeline_options(tmp_path, monkeypatch):
